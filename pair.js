@@ -1,7 +1,7 @@
 /**
- * CYPHER-MD PAIRING SCRIPT
- * Clean private version using 6-digit pairing code.
- * Fully linked to msg.js for auto replies and message handling.
+ * CYPHER-MD PAIRING SCRIPT (Fixed Version)
+ * Now waits for full connection before requesting pairing code.
+ * Auto reconnects if connection closes.
  * Powered by Cypher MD.
  */
 
@@ -19,7 +19,6 @@ const {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   jidNormalizedUser,
-  delay,
   getContentType,
 } = require("@whiskeysockets/baileys");
 
@@ -58,13 +57,34 @@ async function createSocket(number, res) {
     });
 
     if (!number) return res.status(400).send("❌ Number required");
-    let code = await socket.requestPairingCode(number);
-    console.log(`🔢 Pairing code for ${number}: ${code}`);
-    res.status(200).send({ code });
 
+    console.log("⏳ Connecting to WhatsApp... Please wait...");
+
+    // ✅ Wait for connection before requesting pairing code
     socket.ev.on("connection.update", async (update) => {
       const { connection } = update;
 
+      if (connection === "open") {
+        console.log("✅ Connection ready — requesting pairing code...");
+        try {
+          let code = await socket.requestPairingCode(number);
+          console.log(`🔢 Pairing code for ${number}: ${code}`);
+          res.status(200).send({ code });
+        } catch (err) {
+          console.error("❌ Pairing code error:", err);
+          res.status(500).send({ error: "Failed to generate pairing code" });
+        }
+      }
+
+      if (connection === "close") {
+        console.log("⚠️ Connection closed. Retrying in 5 seconds...");
+        setTimeout(() => createSocket(number, res), 5000);
+      }
+    });
+
+    // ✅ Handle when connected and ready for commands
+    socket.ev.on("connection.update", async (update) => {
+      const { connection } = update;
       if (connection === "open") {
         console.log(`✅ ${config.BOT_NAME} connected successfully!`);
         const userJid = jidNormalizedUser(socket.user.id);
@@ -77,7 +97,6 @@ async function createSocket(number, res) {
         setupCommandHandlers(socket, number);
         setupDeleteHandler(socket, number);
 
-        // Clear session after connection ends
         socket.ev.on("connection.update", ({ connection }) => {
           if (connection === "close") {
             fs.emptyDirSync(SESSION_PATH);
