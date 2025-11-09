@@ -1,7 +1,7 @@
 /**
  * CYPHER MD BOT - PAIRING SCRIPT
  * Clean version using baileys-mod (multi-number supported)
- * Generates 6-digit pairing code and auto reconnects
+ * Optimized for Render free hosting
  */
 
 const express = require("express");
@@ -26,7 +26,8 @@ const config = {
   TIMEZONE: "Africa/Lagos",
 };
 
-const SESSION_PATH = "./session-temp";
+// ✅ Persistent session folder for Render
+const SESSION_PATH = path.join(process.cwd(), "session-data");
 if (!fs.existsSync(SESSION_PATH)) fs.mkdirSync(SESSION_PATH, { recursive: true });
 
 function formatMessage(title, content, footer) {
@@ -38,7 +39,7 @@ function getTimestamp() {
 }
 
 /**
- * 🔹 Create socket with pairing code
+ * 🔹 Create WhatsApp socket with pairing support
  */
 async function createSocket(number, res) {
   try {
@@ -57,45 +58,54 @@ async function createSocket(number, res) {
 
     console.log("⏳ Connecting to WhatsApp...");
 
+    // 🔹 Handle connection updates
     socket.ev.on("connection.update", async (update) => {
-      const { connection } = update;
+      const { connection, lastDisconnect } = update;
+      console.log("Connection update:", update);
 
-      if (connection === "open") {
-        console.log("✅ Connection established — requesting pairing code...");
-        try {
-          const code = await socket.requestPairingCode(number);
-          console.log(`🔢 Pairing Code for ${number}: ${code}`);
-          res.status(200).send({ code });
-        } catch (err) {
-          console.error("❌ Pairing code error:", err);
-          res.status(500).send({ error: "Failed to generate pairing code" });
-        }
-      }
-
-      if (connection === "close") {
-        console.log("⚠️ Connection closed. Reconnecting in 5s...");
-        setTimeout(() => createSocket(number, res), 5000);
-      }
-    });
-
-    socket.ev.on("creds.update", saveCreds);
-
-    // 🔸 When connected
-    socket.ev.on("connection.update", async (update) => {
-      const { connection } = update;
       if (connection === "open") {
         console.log(`✅ ${config.BOT_NAME} connected!`);
         const userJid = jidNormalizedUser(socket.user.id);
-
         await socket.sendMessage(userJid, {
           text: `✅ *${config.BOT_NAME} connected successfully!*`,
         });
 
+        // Setup handlers
         setupStatusHandler(socket);
         setupCommandHandler(socket, number);
         setupDeleteHandler(socket, number);
+
+        // Respond to pairing request only if session missing
+        if (!fs.existsSync(path.join(SESSION_PATH, "state.json"))) {
+          try {
+            const code = await socket.requestPairingCode(number);
+            console.log(`🔢 Pairing Code for ${number}: ${code}`);
+            res.status(200).send({ code });
+          } catch (err) {
+            console.error("❌ Pairing code error:", err);
+            res.status(500).send({ error: "Failed to generate pairing code" });
+          }
+        } else {
+          res.status(200).send({ status: "already paired" });
+        }
+      }
+
+      if (connection === "close") {
+        const reason = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.message;
+        console.log(`⚠️ Connection closed: ${reason}`);
+
+        // Only reconnect if not logged out
+        if (reason !== "logged out") {
+          console.log("⏳ Reconnecting in 5s...");
+          setTimeout(() => createSocket(number, res), 5000);
+        } else {
+          console.log("❌ Logged out. Please pair again manually.");
+        }
       }
     });
+
+    // Save session updates
+    socket.ev.on("creds.update", saveCreds);
   } catch (error) {
     console.error("❌ Error while creating pairing code:", error);
     res.status(500).send({ error: "Failed to generate pairing code" });
@@ -103,7 +113,7 @@ async function createSocket(number, res) {
 }
 
 /**
- * 🔹 Auto react to statuses
+ * 🔹 React to WhatsApp statuses
  */
 function setupStatusHandler(socket) {
   socket.ev.on("messages.upsert", async ({ messages }) => {
@@ -211,6 +221,7 @@ function setupDeleteHandler(socket, number) {
   });
 }
 
+// ✅ API endpoint to generate pairing code
 router.get("/", async (req, res) => {
   const { number } = req.query;
   await createSocket(number, res);
