@@ -1,7 +1,6 @@
 /**
- * CYPHER-MD MAIN SERVER
- * Clean, private version — runs pairing and serves your web pages.
- * Powered by Cypher MD.
+ * CYPHER MD BOT MAIN SERVER
+ * Clean, private version — runs pairing and serves web pages
  */
 
 const express = require('express');
@@ -11,28 +10,24 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 require('events').EventEmitter.defaultMaxListeners = 500;
 
-// ✅ Import the WhatsApp pairing system
+// ✅ Import WhatsApp pairing system
 const pairRoute = require('./pair');
 
-// ✅ Set current project path
+// ✅ Set project path
 const __path = process.cwd();
 
-// ✅ Middleware setup
+// ✅ Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-
-// ✅ Serve static assets (CSS, images, etc. if needed later)
 app.use(express.static(__path));
 
-// ✅ Route for WhatsApp code pairing
+// ✅ Routes
 app.use('/code', pairRoute);
 
-// ✅ Route for pairing page
 app.get('/pair', (req, res) => {
   res.sendFile(path.join(__path, 'pair.html'));
 });
 
-// ✅ Route for main page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__path, 'main.html'));
 });
@@ -40,7 +35,7 @@ app.get('/', (req, res) => {
 // ✅ Start server
 app.listen(PORT, () => {
   console.log(`
-🚀 CYPHER-MD Server Started
+🚀 CYPHER MD BOT Server Started
 🌍 http://localhost:${PORT}
 ✅ Ready for WhatsApp Pairing
   `);
