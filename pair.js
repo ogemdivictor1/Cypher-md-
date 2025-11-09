@@ -1,8 +1,8 @@
 /**
- * CYPHER-MD PAIRING SCRIPT (Fixed Version)
- * Now waits for full connection before requesting pairing code.
- * Auto reconnects if connection closes.
- * Powered by Cypher MD.
+ * SUBZERO MINI BOT - PAIRING SCRIPT
+ * Clean version using baileys-mod (multi-number supported)
+ * Generates 6-digit pairing code and auto reconnects.
+ * Powered by Subzero Mini Bot ⚡
  */
 
 const express = require("express");
@@ -11,20 +11,20 @@ const path = require("path");
 const router = express.Router();
 const pino = require("pino");
 const moment = require("moment-timezone");
-const crypto = require("crypto");
-const { sms } = require("./msg"); // ✅ connect auto-reply handler
+const { sms } = require("./msg"); // auto-reply handler
 
+// 👉 Import from baileys-mod instead of @whiskeysockets/baileys
 const {
   default: makeWASocket,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   jidNormalizedUser,
   getContentType,
-} = require("@whiskeysockets/baileys");
+} = require("baileys");
 
 const config = {
   PREFIX: ".",
-  BOT_NAME: "CYPHER-MD",
+  BOT_NAME: "SUBZERO-MINI-BOT",
   IMAGE_URL: "https://i.ibb.co/Zf1CzD5J/cypher-md-logo.jpg",
   TIMEZONE: "Africa/Lagos",
 };
@@ -41,7 +41,7 @@ function getTimestamp() {
 }
 
 /**
- * 🔹 Create socket with 6-digit pairing code
+ * 🔹 Create socket with pairing code
  */
 async function createSocket(number, res) {
   try {
@@ -58,17 +58,16 @@ async function createSocket(number, res) {
 
     if (!number) return res.status(400).send("❌ Number required");
 
-    console.log("⏳ Connecting to WhatsApp... Please wait...");
+    console.log("⏳ Connecting to WhatsApp...");
 
-    // ✅ Wait for connection before requesting pairing code
     socket.ev.on("connection.update", async (update) => {
       const { connection } = update;
 
       if (connection === "open") {
-        console.log("✅ Connection ready — requesting pairing code...");
+        console.log("✅ Connection established — requesting pairing code...");
         try {
-          let code = await socket.requestPairingCode(number);
-          console.log(`🔢 Pairing code for ${number}: ${code}`);
+          const code = await socket.requestPairingCode(number);
+          console.log(`🔢 Pairing Code for ${number}: ${code}`);
           res.status(200).send({ code });
         } catch (err) {
           console.error("❌ Pairing code error:", err);
@@ -77,36 +76,29 @@ async function createSocket(number, res) {
       }
 
       if (connection === "close") {
-        console.log("⚠️ Connection closed. Retrying in 5 seconds...");
+        console.log("⚠️ Connection closed. Reconnecting in 5s...");
         setTimeout(() => createSocket(number, res), 5000);
       }
     });
 
-    // ✅ Handle when connected and ready for commands
+    socket.ev.on("creds.update", saveCreds);
+
+    // 🔸 When connected
     socket.ev.on("connection.update", async (update) => {
       const { connection } = update;
       if (connection === "open") {
-        console.log(`✅ ${config.BOT_NAME} connected successfully!`);
+        console.log(`✅ ${config.BOT_NAME} connected!`);
         const userJid = jidNormalizedUser(socket.user.id);
 
         await socket.sendMessage(userJid, {
           text: `✅ *${config.BOT_NAME} connected successfully!*`,
         });
 
-        setupStatusHandlers(socket);
-        setupCommandHandlers(socket, number);
+        setupStatusHandler(socket);
+        setupCommandHandler(socket, number);
         setupDeleteHandler(socket, number);
-
-        socket.ev.on("connection.update", ({ connection }) => {
-          if (connection === "close") {
-            fs.emptyDirSync(SESSION_PATH);
-            console.log("🧹 Session cleared after disconnect.");
-          }
-        });
       }
     });
-
-    socket.ev.on("creds.update", saveCreds);
   } catch (error) {
     console.error("❌ Error while creating pairing code:", error);
     res.status(500).send({ error: "Failed to generate pairing code" });
@@ -114,9 +106,9 @@ async function createSocket(number, res) {
 }
 
 /**
- * 🔹 Auto view / react to statuses
+ * 🔹 Auto react to statuses
  */
-function setupStatusHandlers(socket) {
+function setupStatusHandler(socket) {
   socket.ev.on("messages.upsert", async ({ messages }) => {
     const message = messages[0];
     if (!message?.key || message.key.remoteJid !== "status@broadcast") return;
@@ -124,27 +116,26 @@ function setupStatusHandlers(socket) {
     try {
       await socket.readMessages([message.key]);
       const emojis = ["🔥", "❤️", "💫", "😎"];
-      const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-      await socket.sendMessage(
-        message.key.remoteJid,
-        { react: { text: randomEmoji, key: message.key } },
-        { statusJidList: [message.key.participant] }
-      );
-      console.log(`💫 Reacted to a status with ${randomEmoji}`);
-    } catch (error) {
-      console.error("⚠️ Status error:", error);
+      const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+      await socket.sendMessage(message.key.remoteJid, {
+        react: { text: emoji, key: message.key },
+      });
+      console.log(`💫 Reacted to a status with ${emoji}`);
+    } catch (err) {
+      console.error("⚠️ Status error:", err);
     }
   });
 }
 
 /**
- * 🔹 Command handling (.alive, .menu, etc.)
+ * 🔹 Command handler (.alive, .menu, etc.)
  */
-function setupCommandHandlers(socket, number) {
+function setupCommandHandler(socket, number) {
   socket.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.remoteJid === "status@broadcast") return;
-    sms(socket, msg); // ✅ linked auto reply system
+
+    sms(socket, msg); // your auto-reply system
 
     const type = getContentType(msg.message);
     const body =
@@ -159,7 +150,7 @@ function setupCommandHandlers(socket, number) {
 
     try {
       switch (command) {
-        case "alive":
+        case "alive": {
           const uptime = process.uptime();
           const hours = Math.floor(uptime / 3600);
           const minutes = Math.floor((uptime % 3600) / 60);
@@ -177,8 +168,9 @@ function setupCommandHandlers(socket, number) {
             caption,
           });
           break;
+        }
 
-        case "menu":
+        case "menu": {
           const menu = `
 🌐 *${config.BOT_NAME} MENU*
 
@@ -187,12 +179,14 @@ ${config.PREFIX}help - Show help
 `;
           await socket.sendMessage(from, { text: menu });
           break;
+        }
 
-        case "help":
+        case "help": {
           await socket.sendMessage(from, {
             text: `✨ *${config.BOT_NAME}* is ready!\nUse .menu to see all commands.`,
           });
           break;
+        }
 
         default:
           await socket.sendMessage(from, {
@@ -218,7 +212,7 @@ function setupDeleteHandler(socket, number) {
     const msg = formatMessage(
       "🗑️ MESSAGE DELETED",
       `Message deleted from:\n📋 ${key.remoteJid}\n🕒 ${deletionTime}`,
-      "Powered by CYPHER-MD"
+      "Powered by SUBZERO-MINI-BOT"
     );
 
     await socket.sendMessage(userJid, {
