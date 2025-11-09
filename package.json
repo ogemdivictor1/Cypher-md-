@@ -34,15 +34,15 @@
     "moment-timezone": "^0.6.0"
   },
   "engines": {
-    "node": ">=18.x"
+    "node": "18.x"
   },
   "keywords": [
     "whatsapp",
     "bot",
     "multi-device",
     "baileys",
-    "sula-md"
+    "subzero-mini-bot"
   ],
-  "author": "Your Name",
+  "author": "Ogemdi Victor",
   "license": "MIT"
 }
