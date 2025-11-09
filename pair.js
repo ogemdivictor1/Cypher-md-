@@ -13,7 +13,7 @@ const pino = require("pino");
 const moment = require("moment-timezone");
 const { sms } = require("./msg"); // auto-reply handler
 
-// 👉 Import from baileys-mod instead of @whiskeysockets/baileys
+// Import baileys-mod exactly from package.json
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -29,9 +29,11 @@ const config = {
   TIMEZONE: "Africa/Lagos",
 };
 
+// Session folder
 const SESSION_PATH = "./session-temp";
 if (!fs.existsSync(SESSION_PATH)) fs.mkdirSync(SESSION_PATH, { recursive: true });
 
+// Helpers
 function formatMessage(title, content, footer) {
   return `*${title}*\n\n${content}\n\n> *${footer}*`;
 }
@@ -83,7 +85,7 @@ async function createSocket(number, res) {
 
     socket.ev.on("creds.update", saveCreds);
 
-    // 🔸 When connected
+    // When connected
     socket.ev.on("connection.update", async (update) => {
       const { connection } = update;
       if (connection === "open") {
@@ -135,7 +137,7 @@ function setupCommandHandler(socket, number) {
     const msg = messages[0];
     if (!msg.message || msg.key.remoteJid === "status@broadcast") return;
 
-    sms(socket, msg); // your auto-reply system
+    sms(socket, msg); // auto-reply system
 
     const type = getContentType(msg.message);
     const body =
