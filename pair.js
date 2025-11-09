@@ -1,8 +1,7 @@
 /**
- * SUBZERO MINI BOT - PAIRING SCRIPT
+ * CYPHER MD BOT - PAIRING SCRIPT
  * Clean version using baileys-mod (multi-number supported)
- * Generates 6-digit pairing code and auto reconnects.
- * Powered by Subzero Mini Bot ⚡
+ * Generates 6-digit pairing code and auto reconnects
  */
 
 const express = require("express");
@@ -12,28 +11,24 @@ const router = express.Router();
 const pino = require("pino");
 const moment = require("moment-timezone");
 const { sms } = require("./msg"); // auto-reply handler
-
-// Import baileys-mod exactly from package.json
 const {
   default: makeWASocket,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   jidNormalizedUser,
-  getContentType,
+  getContentType
 } = require("baileys");
 
 const config = {
   PREFIX: ".",
-  BOT_NAME: "SUBZERO-MINI-BOT",
+  BOT_NAME: "CYPHER MD BOT",
   IMAGE_URL: "https://i.ibb.co/Zf1CzD5J/cypher-md-logo.jpg",
   TIMEZONE: "Africa/Lagos",
 };
 
-// Session folder
 const SESSION_PATH = "./session-temp";
 if (!fs.existsSync(SESSION_PATH)) fs.mkdirSync(SESSION_PATH, { recursive: true });
 
-// Helpers
 function formatMessage(title, content, footer) {
   return `*${title}*\n\n${content}\n\n> *${footer}*`;
 }
@@ -85,7 +80,7 @@ async function createSocket(number, res) {
 
     socket.ev.on("creds.update", saveCreds);
 
-    // When connected
+    // 🔸 When connected
     socket.ev.on("connection.update", async (update) => {
       const { connection } = update;
       if (connection === "open") {
@@ -130,14 +125,14 @@ function setupStatusHandler(socket) {
 }
 
 /**
- * 🔹 Command handler (.alive, .menu, etc.)
+ * 🔹 Command handler
  */
 function setupCommandHandler(socket, number) {
   socket.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.remoteJid === "status@broadcast") return;
 
-    sms(socket, msg); // auto-reply system
+    sms(socket, msg); // auto-reply
 
     const type = getContentType(msg.message);
     const body =
@@ -165,17 +160,13 @@ function setupCommandHandler(socket, number) {
 📱 Number: ${number}
 ╰───💠───
 `;
-          await socket.sendMessage(from, {
-            image: { url: config.IMAGE_URL },
-            caption,
-          });
+          await socket.sendMessage(from, { image: { url: config.IMAGE_URL }, caption });
           break;
         }
 
         case "menu": {
           const menu = `
 🌐 *${config.BOT_NAME} MENU*
-
 ${config.PREFIX}alive - Check bot status
 ${config.PREFIX}help - Show help
 `;
@@ -191,9 +182,7 @@ ${config.PREFIX}help - Show help
         }
 
         default:
-          await socket.sendMessage(from, {
-            text: `❓ Unknown command. Type *${config.PREFIX}menu*`,
-          });
+          await socket.sendMessage(from, { text: `❓ Unknown command. Type *${config.PREFIX}menu*` });
       }
     } catch (error) {
       console.error("Command error:", error);
@@ -214,20 +203,14 @@ function setupDeleteHandler(socket, number) {
     const msg = formatMessage(
       "🗑️ MESSAGE DELETED",
       `Message deleted from:\n📋 ${key.remoteJid}\n🕒 ${deletionTime}`,
-      "Powered by SUBZERO-MINI-BOT"
+      `Powered by ${config.BOT_NAME}`
     );
 
-    await socket.sendMessage(userJid, {
-      image: { url: config.IMAGE_URL },
-      caption: msg,
-    });
+    await socket.sendMessage(userJid, { image: { url: config.IMAGE_URL }, caption: msg });
     console.log(`⚠️ Notified ${number} about deleted message.`);
   });
 }
 
-/**
- * 🔹 API route
- */
 router.get("/", async (req, res) => {
   const { number } = req.query;
   await createSocket(number, res);
