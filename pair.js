@@ -1,26 +1,23 @@
 /**
- * CYPHER-MD PAIRING SCRIPT (Fixed + Optimized)
- * Waits for full connection before requesting pairing code.
- * Auto reconnects if connection closes.
- * Uses Browsers.ubuntu("Edge") and custom getMessage function.
- * Powered by Cypher MD.
+ * CYPHER MD BOT PAIRING SCRIPT
+ * Official @whiskeysockets/baileys version
+ * Live connection monitor, error logging, and auto-reconnect
  */
 
 const express = require("express");
 const fs = require("fs-extra");
-const path = require("path");
-const router = express.Router();
 const pino = require("pino");
-const moment = require("moment-timezone");
-const crypto = require("crypto");
+const router = express.Router();
 const { sms } = require("./msg");
+const moment = require("moment-timezone");
 
 const {
   default: makeWASocket,
   useMultiFileAuthState,
+  fetchLatestBaileysVersion,
   jidNormalizedUser,
   getContentType,
-  Browsers,
+  DisconnectReason
 } = require("@whiskeysockets/baileys");
 
 const config = {
@@ -33,35 +30,30 @@ const config = {
 const SESSION_PATH = "./session-temp";
 if (!fs.existsSync(SESSION_PATH)) fs.mkdirSync(SESSION_PATH, { recursive: true });
 
-function formatMessage(title, content, footer) {
-  return `*${title}*\n\n${content}\n\n> *${footer}*`;
-}
-
 function getTimestamp() {
   return moment().tz(config.TIMEZONE).format("YYYY-MM-DD HH:mm:ss");
 }
 
+function formatMessage(title, content, footer) {
+  return `*${title}*\n\n${content}\n\n> *${footer}*`;
+}
+
 /**
- * 🔹 Create socket with 6-digit pairing code
+ * 🔹 Create WhatsApp socket with pairing code
  */
 async function createSocket(number, res) {
   try {
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
+    const { version } = await fetchLatestBaileysVersion();
 
-    // 🔹 Implemented version and Browsers.ubuntu("Edge")
-    const bad = makeWASocket({
+    const socket = makeWASocket({
+      version,
+      auth: state,
       logger: pino({ level: "silent" }),
       printQRInTerminal: false,
-      auth: state,
-      version: [2, 3000, 1025190524],
-      browser: Browsers.ubuntu("Edge"),
-      getMessage: async (key) => {
-        try {
-          const jid = jidNormalizedUser(key.remoteJid);
-          return await bad.loadMessage?.(key) || null;
-        } catch {
-          return null;
-        }
+      browser: [config.BOT_NAME, "Chrome", "1.0.0"],
+      getMessage: async key => {
+        return { id: key.id, conversation: "" };
       },
     });
 
@@ -69,71 +61,66 @@ async function createSocket(number, res) {
 
     console.log("⏳ Connecting to WhatsApp... Please wait...");
 
-    // ✅ Handle connection updates
-    bad.ev.on("connection.update", async (update) => {
-      const { connection } = update;
+    // ✅ Live connection monitoring
+    socket.ev.on("connection.update", async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+      console.log(`[${getTimestamp()}] Connection status: ${connection}`);
+
+      if (qr) console.log("🔹 Pairing code ready!");
+
+      if (connection === "close") {
+        const reason = lastDisconnect?.error?.output?.statusCode;
+        switch (reason) {
+          case DisconnectReason.loggedOut:
+            console.log("❌ Logged out. Please remove session and reconnect.");
+            break;
+          case DisconnectReason.restartRequired:
+            console.log("⚠️ Restart required to reconnect.");
+            break;
+          case DisconnectReason.timedOut:
+            console.log("⏱ Connection timed out.");
+            break;
+          default:
+            console.log(`❌ Connection closed. Reason: ${reason || "Unknown"}`);
+        }
+        console.log("⚠️ Retrying in 5 seconds...");
+        setTimeout(() => createSocket(number, res), 5000);
+      }
 
       if (connection === "open") {
-        console.log("✅ Connection ready — requesting pairing code...");
+        console.log(`✅ ${config.BOT_NAME} connected successfully!`);
+        const userJid = jidNormalizedUser(socket.user.id);
+
+        await socket.sendMessage(userJid, {
+          text: `✅ *${config.BOT_NAME} connected successfully!*`,
+        });
+
+        setupCommandHandlers(socket, number);
+        setupStatusHandlers(socket);
+        setupDeleteHandler(socket, number);
+
+        // Respond with pairing code if first connect
         try {
-          let code = await bad.requestPairingCode(number);
+          const code = await socket.requestPairingCode(number);
           console.log(`🔢 Pairing code for ${number}: ${code}`);
           res.status(200).send({ code });
-
-          // Connected successfully
-          console.log(`✅ ${config.BOT_NAME} connected successfully!`);
-          const userJid = jidNormalizedUser(bad.user.id);
-
-          await bad.sendMessage(userJid, {
-            text: `✅ *${config.BOT_NAME} connected successfully!*`,
-          });
-
-          setupStatusHandlers(bad);
-          setupCommandHandlers(bad, number);
-          setupDeleteHandler(bad, number);
         } catch (err) {
-          console.error("❌ Pairing code error:", err);
+          console.error("❌ Failed to generate pairing code:", err);
           res.status(500).send({ error: "Failed to generate pairing code" });
         }
       }
-
-      if (connection === "close") {
-        console.log("⚠️ Connection closed. Retrying in 5 seconds...");
-        await bad.logout?.();
-        fs.emptyDirSync(SESSION_PATH);
-        setTimeout(() => createSocket(number, res), 5000);
-      }
     });
 
-    bad.ev.on("creds.update", saveCreds);
+    socket.ev.on("creds.update", saveCreds);
+
+    socket.ev.on("connection.error", (err) => {
+      console.error("⚠️ Socket error:", err);
+    });
+
   } catch (error) {
     console.error("❌ Error while creating pairing code:", error);
     res.status(500).send({ error: "Failed to generate pairing code" });
   }
-}
-
-/**
- * 🔹 Auto view / react to statuses
- */
-function setupStatusHandlers(socket) {
-  socket.ev.on("messages.upsert", async ({ messages }) => {
-    const message = messages[0];
-    if (!message?.key || message.key.remoteJid !== "status@broadcast") return;
-
-    try {
-      await socket.readMessages([message.key]);
-      const emojis = ["🔥", "❤️", "💫", "😎"];
-      const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-      await socket.sendMessage(
-        message.key.remoteJid,
-        { react: { text: randomEmoji, key: message.key } },
-        { statusJidList: [message.key.participant] }
-      );
-      console.log(`💫 Reacted to a status with ${randomEmoji}`);
-    } catch (error) {
-      console.error("⚠️ Status error:", error);
-    }
-  });
 }
 
 /**
@@ -143,13 +130,13 @@ function setupCommandHandlers(socket, number) {
   socket.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.remoteJid === "status@broadcast") return;
-    sms(socket, msg); // ✅ linked auto reply system
+
+    sms(socket, msg);
 
     const type = getContentType(msg.message);
-    const body =
-      type === "conversation"
-        ? msg.message.conversation
-        : msg.message?.extendedTextMessage?.text || "";
+    const body = type === "conversation"
+      ? msg.message.conversation
+      : msg.message?.extendedTextMessage?.text || "";
 
     if (!body.startsWith(config.PREFIX)) return;
 
@@ -166,20 +153,17 @@ function setupCommandHandlers(socket, number) {
 
           const caption = `
 ╭───💠───
-👑 *${config.BOT_NAME} IS ACTIVE*
+👑 ${config.BOT_NAME} IS ACTIVE
 ⏰ Uptime: ${hours}h ${minutes}m ${seconds}s
 📱 Number: ${number}
 ╰───💠───
 `;
-          await socket.sendMessage(from, {
-            image: { url: config.IMAGE_URL },
-            caption,
-          });
+          await socket.sendMessage(from, { image: { url: config.IMAGE_URL }, caption });
           break;
 
         case "menu":
           const menu = `
-🌐 *${config.BOT_NAME} MENU*
+🌐 ${config.BOT_NAME} MENU
 
 ${config.PREFIX}alive - Check bot status
 ${config.PREFIX}help - Show help
@@ -188,24 +172,39 @@ ${config.PREFIX}help - Show help
           break;
 
         case "help":
-          await socket.sendMessage(from, {
-            text: `✨ *${config.BOT_NAME}* is ready!\nUse .menu to see all commands.`,
-          });
+          await socket.sendMessage(from, { text: `✨ *${config.BOT_NAME}* is ready!\nUse .menu to see all commands.` });
           break;
 
         default:
-          await socket.sendMessage(from, {
-            text: `❓ Unknown command. Type *${config.PREFIX}menu*`,
-          });
+          await socket.sendMessage(from, { text: `❓ Unknown command. Type *${config.PREFIX}menu*` });
       }
-    } catch (error) {
-      console.error("Command error:", error);
+    } catch (err) {
+      console.error("❌ Command error:", err);
     }
   });
 }
 
 /**
- * 🔹 Message delete handler
+ * 🔹 Auto view/react to statuses
+ */
+function setupStatusHandlers(socket) {
+  socket.ev.on("messages.upsert", async ({ messages }) => {
+    const message = messages[0];
+    if (!message?.key || message.key.remoteJid !== "status@broadcast") return;
+
+    try {
+      const emojis = ["🔥","❤️","💫","😎"];
+      const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+      await socket.sendMessage(message.key.remoteJid, { react: { text: randomEmoji, key: message.key } }, { statusJidList: [message.key.participant] });
+      console.log(`💫 Reacted to status with ${randomEmoji}`);
+    } catch (err) {
+      console.error("⚠️ Status error:", err);
+    }
+  });
+}
+
+/**
+ * 🔹 Handle deleted messages
  */
 function setupDeleteHandler(socket, number) {
   socket.ev.on("messages.delete", async ({ keys }) => {
@@ -220,10 +219,7 @@ function setupDeleteHandler(socket, number) {
       "Powered by CYPHER-MD"
     );
 
-    await socket.sendMessage(userJid, {
-      image: { url: config.IMAGE_URL },
-      caption: msg,
-    });
+    await socket.sendMessage(userJid, { image: { url: config.IMAGE_URL }, caption: msg });
     console.log(`⚠️ Notified ${number} about deleted message.`);
   });
 }
