@@ -1,7 +1,9 @@
 /**
- * CYPHER MD BOT - PAIRING SCRIPT
- * Clean version using baileys-mod (multi-number supported)
- * Optimized for Render free hosting
+ * CYPHER-MD PAIRING SCRIPT (Fixed + Optimized)
+ * Waits for full connection before requesting pairing code.
+ * Auto reconnects if connection closes.
+ * Uses Browsers.ubuntu("Edge") and custom getMessage function.
+ * Powered by Cypher MD.
  */
 
 const express = require("express");
@@ -10,24 +12,25 @@ const path = require("path");
 const router = express.Router();
 const pino = require("pino");
 const moment = require("moment-timezone");
-const { sms } = require("./msg"); // auto-reply handler
+const crypto = require("crypto");
+const { sms } = require("./msg");
+
 const {
   default: makeWASocket,
   useMultiFileAuthState,
-  fetchLatestBaileysVersion,
   jidNormalizedUser,
-  getContentType
-} = require("baileys");
+  getContentType,
+  Browsers,
+} = require("@whiskeysockets/baileys");
 
 const config = {
   PREFIX: ".",
-  BOT_NAME: "CYPHER MD BOT",
+  BOT_NAME: "CYPHER-MD",
   IMAGE_URL: "https://i.ibb.co/Zf1CzD5J/cypher-md-logo.jpg",
   TIMEZONE: "Africa/Lagos",
 };
 
-// ✅ Persistent session folder for Render
-const SESSION_PATH = path.join(process.cwd(), "session-data");
+const SESSION_PATH = "./session-temp";
 if (!fs.existsSync(SESSION_PATH)) fs.mkdirSync(SESSION_PATH, { recursive: true });
 
 function formatMessage(title, content, footer) {
@@ -39,73 +42,70 @@ function getTimestamp() {
 }
 
 /**
- * 🔹 Create WhatsApp socket with pairing support
+ * 🔹 Create socket with 6-digit pairing code
  */
 async function createSocket(number, res) {
   try {
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
-    const { version } = await fetchLatestBaileysVersion();
 
-    const socket = makeWASocket({
-      version,
-      auth: state,
+    // 🔹 Implemented version and Browsers.ubuntu("Edge")
+    const bad = makeWASocket({
       logger: pino({ level: "silent" }),
       printQRInTerminal: false,
-      browser: [config.BOT_NAME, "Chrome", "1.0.0"],
+      auth: state,
+      version: [2, 3000, 1025190524],
+      browser: Browsers.ubuntu("Edge"),
+      getMessage: async (key) => {
+        try {
+          const jid = jidNormalizedUser(key.remoteJid);
+          return await bad.loadMessage?.(key) || null;
+        } catch {
+          return null;
+        }
+      },
     });
 
     if (!number) return res.status(400).send("❌ Number required");
 
-    console.log("⏳ Connecting to WhatsApp...");
+    console.log("⏳ Connecting to WhatsApp... Please wait...");
 
-    // 🔹 Handle connection updates
-    socket.ev.on("connection.update", async (update) => {
-      const { connection, lastDisconnect } = update;
-      console.log("Connection update:", update);
+    // ✅ Handle connection updates
+    bad.ev.on("connection.update", async (update) => {
+      const { connection } = update;
 
       if (connection === "open") {
-        console.log(`✅ ${config.BOT_NAME} connected!`);
-        const userJid = jidNormalizedUser(socket.user.id);
-        await socket.sendMessage(userJid, {
-          text: `✅ *${config.BOT_NAME} connected successfully!*`,
-        });
+        console.log("✅ Connection ready — requesting pairing code...");
+        try {
+          let code = await bad.requestPairingCode(number);
+          console.log(`🔢 Pairing code for ${number}: ${code}`);
+          res.status(200).send({ code });
 
-        // Setup handlers
-        setupStatusHandler(socket);
-        setupCommandHandler(socket, number);
-        setupDeleteHandler(socket, number);
+          // Connected successfully
+          console.log(`✅ ${config.BOT_NAME} connected successfully!`);
+          const userJid = jidNormalizedUser(bad.user.id);
 
-        // Respond to pairing request only if session missing
-        if (!fs.existsSync(path.join(SESSION_PATH, "state.json"))) {
-          try {
-            const code = await socket.requestPairingCode(number);
-            console.log(`🔢 Pairing Code for ${number}: ${code}`);
-            res.status(200).send({ code });
-          } catch (err) {
-            console.error("❌ Pairing code error:", err);
-            res.status(500).send({ error: "Failed to generate pairing code" });
-          }
-        } else {
-          res.status(200).send({ status: "already paired" });
+          await bad.sendMessage(userJid, {
+            text: `✅ *${config.BOT_NAME} connected successfully!*`,
+          });
+
+          setupStatusHandlers(bad);
+          setupCommandHandlers(bad, number);
+          setupDeleteHandler(bad, number);
+        } catch (err) {
+          console.error("❌ Pairing code error:", err);
+          res.status(500).send({ error: "Failed to generate pairing code" });
         }
       }
 
       if (connection === "close") {
-        const reason = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.message;
-        console.log(`⚠️ Connection closed: ${reason}`);
-
-        // Only reconnect if not logged out
-        if (reason !== "logged out") {
-          console.log("⏳ Reconnecting in 5s...");
-          setTimeout(() => createSocket(number, res), 5000);
-        } else {
-          console.log("❌ Logged out. Please pair again manually.");
-        }
+        console.log("⚠️ Connection closed. Retrying in 5 seconds...");
+        await bad.logout?.();
+        fs.emptyDirSync(SESSION_PATH);
+        setTimeout(() => createSocket(number, res), 5000);
       }
     });
 
-    // Save session updates
-    socket.ev.on("creds.update", saveCreds);
+    bad.ev.on("creds.update", saveCreds);
   } catch (error) {
     console.error("❌ Error while creating pairing code:", error);
     res.status(500).send({ error: "Failed to generate pairing code" });
@@ -113,9 +113,9 @@ async function createSocket(number, res) {
 }
 
 /**
- * 🔹 React to WhatsApp statuses
+ * 🔹 Auto view / react to statuses
  */
-function setupStatusHandler(socket) {
+function setupStatusHandlers(socket) {
   socket.ev.on("messages.upsert", async ({ messages }) => {
     const message = messages[0];
     if (!message?.key || message.key.remoteJid !== "status@broadcast") return;
@@ -123,26 +123,27 @@ function setupStatusHandler(socket) {
     try {
       await socket.readMessages([message.key]);
       const emojis = ["🔥", "❤️", "💫", "😎"];
-      const emoji = emojis[Math.floor(Math.random() * emojis.length)];
-      await socket.sendMessage(message.key.remoteJid, {
-        react: { text: emoji, key: message.key },
-      });
-      console.log(`💫 Reacted to a status with ${emoji}`);
-    } catch (err) {
-      console.error("⚠️ Status error:", err);
+      const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+      await socket.sendMessage(
+        message.key.remoteJid,
+        { react: { text: randomEmoji, key: message.key } },
+        { statusJidList: [message.key.participant] }
+      );
+      console.log(`💫 Reacted to a status with ${randomEmoji}`);
+    } catch (error) {
+      console.error("⚠️ Status error:", error);
     }
   });
 }
 
 /**
- * 🔹 Command handler
+ * 🔹 Command handling (.alive, .menu, etc.)
  */
-function setupCommandHandler(socket, number) {
+function setupCommandHandlers(socket, number) {
   socket.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.remoteJid === "status@broadcast") return;
-
-    sms(socket, msg); // auto-reply
+    sms(socket, msg); // ✅ linked auto reply system
 
     const type = getContentType(msg.message);
     const body =
@@ -157,7 +158,7 @@ function setupCommandHandler(socket, number) {
 
     try {
       switch (command) {
-        case "alive": {
+        case "alive":
           const uptime = process.uptime();
           const hours = Math.floor(uptime / 3600);
           const minutes = Math.floor((uptime % 3600) / 60);
@@ -170,29 +171,32 @@ function setupCommandHandler(socket, number) {
 📱 Number: ${number}
 ╰───💠───
 `;
-          await socket.sendMessage(from, { image: { url: config.IMAGE_URL }, caption });
+          await socket.sendMessage(from, {
+            image: { url: config.IMAGE_URL },
+            caption,
+          });
           break;
-        }
 
-        case "menu": {
+        case "menu":
           const menu = `
 🌐 *${config.BOT_NAME} MENU*
+
 ${config.PREFIX}alive - Check bot status
 ${config.PREFIX}help - Show help
 `;
           await socket.sendMessage(from, { text: menu });
           break;
-        }
 
-        case "help": {
+        case "help":
           await socket.sendMessage(from, {
             text: `✨ *${config.BOT_NAME}* is ready!\nUse .menu to see all commands.`,
           });
           break;
-        }
 
         default:
-          await socket.sendMessage(from, { text: `❓ Unknown command. Type *${config.PREFIX}menu*` });
+          await socket.sendMessage(from, {
+            text: `❓ Unknown command. Type *${config.PREFIX}menu*`,
+          });
       }
     } catch (error) {
       console.error("Command error:", error);
@@ -213,15 +217,20 @@ function setupDeleteHandler(socket, number) {
     const msg = formatMessage(
       "🗑️ MESSAGE DELETED",
       `Message deleted from:\n📋 ${key.remoteJid}\n🕒 ${deletionTime}`,
-      `Powered by ${config.BOT_NAME}`
+      "Powered by CYPHER-MD"
     );
 
-    await socket.sendMessage(userJid, { image: { url: config.IMAGE_URL }, caption: msg });
+    await socket.sendMessage(userJid, {
+      image: { url: config.IMAGE_URL },
+      caption: msg,
+    });
     console.log(`⚠️ Notified ${number} about deleted message.`);
   });
 }
 
-// ✅ API endpoint to generate pairing code
+/**
+ * 🔹 API route
+ */
 router.get("/", async (req, res) => {
   const { number } = req.query;
   await createSocket(number, res);
