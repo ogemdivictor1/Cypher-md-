@@ -3,129 +3,140 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="shortcut icon" href="" type="image/x-icon">
+  <title>CYPHER SESSION ID GENERATOR</title>
+  <link rel="shortcut icon" href="https://files.catbox.moe/39z8jd.jpg" type="image/x-icon">
   <style>
+    /* === GENERAL PAGE STYLE === */
     body {
-      background-color: black;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
       margin: 0;
-      color: white;
+      padding: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center, #001100 0%, #000000 100%);
+      font-family: 'Courier New', monospace;
+      color: #00ff88;
+      overflow: hidden;
     }
 
-    {
-            "@context": "https://schema.org",
-            "@type": "Organization",
-            "url": "https://railway.app",
-            "logo": "https://files.catbox.moe/39z8jd.jpg"
+    /* === DIGITAL BACKGROUND EFFECT === */
+    .matrix {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: repeating-linear-gradient(
+        rgba(0, 255, 100, 0.04) 0px,
+        rgba(0, 255, 100, 0.04) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+      z-index: -2;
+      animation: scan 4s linear infinite;
     }
 
+    @keyframes scan {
+      from { transform: translateY(0); }
+      to { transform: translateY(100%); }
+    }
+
+    /* === GLOW HEADER === */
+    h3 {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-shadow: 0 0 10px #00ff66, 0 0 20px #00ff66, 0 0 40px #00ff66;
+      animation: flicker 2s infinite;
+      margin-bottom: 40px;
+    }
+
+    @keyframes flicker {
+      0%, 18%, 22%, 25%, 53%, 57%, 100% {
+        opacity: 1;
+      }
+      20%, 24%, 55% {
+        opacity: 0.5;
+      }
+    }
+
+    /* === BUTTON CONTAINER === */
     .button-container {
-      text-align: center;
       display: flex;
       flex-direction: column;
       align-items: center;
+      gap: 15px;
     }
 
-    h3 {
-      margin-top: -40px;
-      opacity: 0;
-      animation: fadeIn 3s forwards;
-    }
-
+    /* === HACKER BUTTON === */
     .button {
-      width: 140px;
-      height: 40px;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 10px;
-      padding: 0px 15px;
-      background-color: red;
-      border-radius: 10px;
-      border: none;
-      color: white;
-      position: relative;
-      cursor: pointer;
-      font-weight: 900;
-      transition-duration: .2s;
-      background: linear-gradient(0deg, #000, #272727);
+      width: 240px;
+      height: 45px;
+      border: 2px solid #00ff73;
+      border-radius: 8px;
+      color: #00ff73;
+      font-weight: bold;
+      text-transform: uppercase;
       text-decoration: none;
+      letter-spacing: 1px;
+      background: rgba(0, 255, 100, 0.08);
+      box-shadow: 0 0 10px #00ff73;
+      position: relative;
+      overflow: hidden;
+      transition: 0.2s;
     }
 
-  
+    .button:hover {
+      background: rgba(0, 255, 100, 0.2);
+      box-shadow: 0 0 20px #00ff73, 0 0 40px #00ff73;
+      transform: scale(1.05);
+    }
+
+    /* === FOOTER === */
     footer {
-    position: fixed;
-    bottom: 0;
-    width: 100%;
-    background-color: #222; /* Darker gray footer background */
-    color: #fff;
-    padding: 10px 0;
-    text-align: center;
-    font-size: 14px;
-    
-  }
-    .button:before, .button:after {
-      content: '';
-      position: absolute;
-      left: -2px;
-      top: -2px;
-      border-radius: 10px;
-      background: linear-gradient(45deg, #48ff00, #15ff00, #000000,#000000, #ff0000);
-      background-size: 400%;
-      width: calc(100% + 4px);
-      height: calc(100% + 4px);
-      z-index: -1;
-      animation: steam 10s linear infinite;
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      text-align: center;
+      background: rgba(0, 255, 100, 0.05);
+      color: #00ff73;
+      padding: 10px 0;
+      font-size: 14px;
+      border-top: 1px solid #00ff73;
+      letter-spacing: 1px;
+      box-shadow: 0 0 10px #00ff73;
     }
 
-    @keyframes steam {
-      0% {
-        background-position: 0 0;
-      }
-
-      50% {
-        background-position: 400% 0;
-      }
-
-      100% {
-        background-position: 0 0;
-      }
-    }
-
-    .button:after {
-      filter: blur(50px);
-    }
-
-    .button span {
-      z-index: 1;
-    }
-
-    @keyframes fadeIn {
-      to {
-        opacity: 1;
-      }
+    footer span {
+      color: #00ff66;
+      font-weight: bold;
     }
   </style>
 </head>
 <body>
+  <div class="matrix"></div>
+
   <div class="button-container">
-    <h3> MALVIN SESSION</h3>
-    <div></div>
-    <a href="/qr" class="button" target="_blank"> <span>QR-CODE</span> </a> <br>
-    <a href="/pair" class="button" target="_blank"> <span>PAIRING-CODE</span> </a> <br>
-    <a href="https://github.com/XdKing2/MALVIN-XD/fork" class="button" target="_blank"> <span>FORK MALVIN XD</span> </a> <br> </a>
-    <a href="https://whatsapp.com/channel/0029VbA6MSYJUM2TVOzCSb2A" class="button" target="_blank"> <span>WhatsApp</span> </a> <br>
+    <h3>CYPHER SESSION ID GENERATOR</h3>
 
-    <p>HAVE ANY ERROR CLICK ERROR BUTTON</p>
+    <a href="/qr" class="button" target="_blank"><span>QR CODE</span></a>
+    <a href="/pair" class="button" target="_blank"><span>PAIRING CODE</span></a>
+    <a href="https://github.com/XdKing2/MALVIN-XD/fork" class="button" target="_blank"><span>FORK CYPHER XD</span></a>
+    <a href="https://whatsapp.com/channel/0029VbA6MSYJUM2TVOzCSb2A" class="button" target="_blank"><span>WHATSAPP</span></a>
+    <a href="https://wa.me/263780166288" class="button" target="_blank"><span>ERROR</span></a>
+  </div>
 
-    <a href="https://wa.me/263780166288" class="button" target="_blank"> <span>ERROR</span> </a> <br>
+  <footer>
+    CYPHER &copy; <span id="currentYear"></span>
+  </footer>
 
-    <footer>
-     MALVIN &copy; <span id="currentYear"></span>
-    </footer>
-  
+  <script>
+    document.getElementById('currentYear').textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>
